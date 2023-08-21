@@ -814,6 +814,12 @@ NIF(to_sparse)
   TENSOR(at::native::sparse_coo_tensor(*indices, *tensor, shape));
 }
 
+NIF(to_dense)
+{
+  TENSOR_PARAM(0, tensor);
+  TENSOR(tensor->to_dense());
+}
+
 NIF(view_as_real)
 {
   TENSOR_PARAM(0, tensor);
@@ -1269,6 +1275,7 @@ static ErlNifFunc nif_functions[] = {
     DF(full, 4),
 
     DF(to_sparse, 3),
+    DF(to_dense, 1),
     DF(item, 1),
     DF(from_blob, 4),
     DF(to_blob, 1),
