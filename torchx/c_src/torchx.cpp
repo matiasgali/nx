@@ -1,9 +1,9 @@
 #include <torch/torch.h>
 
 #if defined(USING_TORCH_V1)
-  #include <ATen/BatchedTensorImpl.h>
+#include <ATen/BatchedTensorImpl.h>
 #else
-  #include <ATen/LegacyBatchedTensorImpl.h>
+#include <ATen/LegacyBatchedTensorImpl.h>
 #endif
 
 #include <iostream>
@@ -271,9 +271,12 @@ NIF(from_blob)
 NIF(to_blob)
 {
   ERL_NIF_TERM result;
-  TENSOR_PARAM(0, t);
-  size_t byte_size = t->nbytes();
+  TENSOR_PARAM(0, t_in);
+  int64_t byte_size = t_in->numel() * t_in->element_size();
   int64_t limit = 0;
+
+  bool is_sparse = t_in->is_sparse();
+  torch::Tensor t = t_in->to_dense();
 
   bool has_received_limit = (argc == 2);
 
@@ -281,22 +284,22 @@ NIF(to_blob)
   {
     PARAM(1, int64_t, param_limit);
     limit = param_limit;
-    byte_size = limit * t->itemsize();
+    byte_size = limit * t.itemsize();
   }
 
-  torch::optional<torch::Device> device = torch::device_of(*t);
+  torch::optional<torch::Device> device = torch::device_of(t);
   // flatten the tensor to compensate for operations which return
   // a column-major tensor. t->flatten() is a no-op if the tensor
   // is already row-major, which was verified by printing t->data_ptr
   // and reshaped.data_ptr and confirming they had the same value.
   // We also slice if a limit was received and it doesn't encompass the full tensor.
-  torch::Tensor reshaped = (has_received_limit && byte_size < t->nbytes()) ? t->flatten().slice(0, 0, limit) : t->flatten();
+  torch::Tensor reshaped = (has_received_limit && byte_size < t.numel() * t.element_size()) ? t.flatten().slice(0, 0, limit) : t.flatten();
   void *data_ptr = reshaped.data_ptr();
 
-  if (device.has_value() && device.value().type() == torch::kCPU && data_ptr == t->data_ptr())
+  if (!is_sparse && device.has_value() && device.value().type() == torch::kCPU && data_ptr == t.data_ptr())
   {
     // case where we own the data_ptr and the data is in the CPU already
-    return nx::nif::ok(env, enif_make_resource_binary(env, t, data_ptr, byte_size));
+    return nx::nif::ok(env, enif_make_resource_binary(env, t_in, data_ptr, byte_size));
   }
   else if (device.has_value() && device.value().type() == torch::kCPU)
   {
@@ -368,7 +371,18 @@ NIF(nbytes)
 {
   TENSOR_PARAM(0, t);
 
-  return nx::nif::ok(env, enif_make_int64(env, t->nbytes()));
+  int64_t size = 0;
+
+  if (t->is_sparse()) {
+    size = t->_values().numel() * t->_values().element_size();
+    size += t->_indices().numel() * t->_indices().element_size();
+  }
+  else {
+    size = t->nbytes();
+  }
+
+
+  return nx::nif::ok(env, enif_make_int64(env, size));
 }
 
 NIF(split)
@@ -791,6 +805,14 @@ UNARY_OP(atanh)
 UNARY_OP(erf)
 UNARY_OP(erfc)
 UNARY_OP2(erf_inv, erfinv)
+
+NIF(to_sparse)
+{
+  TENSOR_PARAM(0, tensor);
+  TENSOR_PARAM(1, indices);
+  SHAPE_PARAM(2, shape);
+  TENSOR(at::native::sparse_coo_tensor(*indices, *tensor, shape));
+}
 
 NIF(view_as_real)
 {
@@ -1246,6 +1268,7 @@ static ErlNifFunc nif_functions[] = {
     DF(eye, 4),
     DF(full, 4),
 
+    DF(to_sparse, 3),
     DF(item, 1),
     DF(from_blob, 4),
     DF(to_blob, 1),

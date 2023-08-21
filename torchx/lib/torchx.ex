@@ -231,6 +231,7 @@ defmodule Torchx do
 
   ## Manipulation
 
+  deftensor to_sparse(tensor, tensor_indices, shape)
   deftensor reshape(tensor, shape)
   deftensor to_type(tensor, type)
   deftensor squeeze(tensor)
