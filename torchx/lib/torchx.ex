@@ -231,11 +231,6 @@ defmodule Torchx do
 
   ## Manipulation
 
-  deftensor to_sparse(tensor, tensor_indices, shape)
-  deftensor to_dense(tensor)
-  deftensor coalesce(tensor)
-  deftensor indices(tensor)
-  deftensor values(tensor)
   deftensor reshape(tensor, shape)
   deftensor to_type(tensor, type)
   deftensor squeeze(tensor)
@@ -384,13 +379,21 @@ defmodule Torchx do
   defvalue to_blob(tensor, limit)
   defvalue delete_tensor(tensor)
   defvalue item(tensor)
-  defvalue is_sparse(tensor)
 
   ## Non-dirty non-tensor return values
 
   def scalar_type({dev, ref}) when is_tensor(dev, ref), do: NIF.scalar_type(ref) |> unwrap!()
   def shape({dev, ref}) when is_tensor(dev, ref), do: NIF.shape(ref) |> unwrap!()
   def nbytes({dev, ref}) when is_tensor(dev, ref), do: NIF.nbytes(ref) |> unwrap!()
+
+  ## Sparse Tensor Interface functions
+
+  deftensor to_sparse(tensor, tensor_indices, shape)
+  deftensor to_dense(tensor)
+  deftensor coalesce(tensor)
+  deftensor indices(tensor)
+  deftensor values(tensor)
+  defvalue is_sparse(tensor)
 
   ## Nx
 
