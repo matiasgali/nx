@@ -1779,24 +1779,74 @@ defmodule Torchx.Backend do
 
   @impl true
   def inspect(%T{} = tensor, inspect_opts) do
+    t_tx = Torchx.from_nx(tensor )
+    is_sparse = Torchx.is_sparse(t_tx)
+
+    if is_sparse do
+      do_inspect_sparse(tensor, t_tx, inspect_opts)
+    else
+      do_inspect(tensor, inspect_opts)
+    end
+    |> maybe_add_signature(tensor, is_sparse)
+  end
+
+  defp do_inspect_sparse(tensor, t_tx, inspect_opts) do
+    limit = if inspect_opts.limit == :infinity, do: :infinity, else: inspect_opts.limit + 1
+    limit = min(limit, Nx.size(tensor))
+
+    sparse_indices =
+      t_tx
+      |> Torchx.coalesce()
+      |> Torchx.indices()
+      |> Torchx.permute([1, 0])
+      |> Torchx.to_nx()
+
+    sparse_indices_doc =
+      sparse_indices
+      |> to_binary((limit - 1) * 2)
+      |> then(&Nx.Backend.inspect(sparse_indices, &1, %{inspect_opts | limit: 2 * (limit - 1)}))
+
+    sparse_values =
+      t_tx
+      |> Torchx.coalesce()
+      |> Torchx.values()
+      |> Torchx.to_nx()
+
+  sparse_values_doc =
+    sparse_values
+    |> to_binary(limit)
+    |> then(&Nx.Backend.inspect(sparse_values, &1, inspect_opts))
+
+    Inspect.Algebra.concat([
+      "Indices: ",
+      sparse_indices_doc,
+      Inspect.Algebra.line(),
+      "Values: ",
+      sparse_values_doc
+    ])
+  end
+
+  defp do_inspect(tensor, inspect_opts) do
     limit = if inspect_opts.limit == :infinity, do: :infinity, else: inspect_opts.limit + 1
 
     tensor
     |> to_binary(min(limit, Nx.size(tensor)))
     |> then(&Nx.Backend.inspect(tensor, &1, inspect_opts))
-    |> maybe_add_signature(tensor)
   end
 
   if Application.compile_env(:torchx, :add_backend_on_inspect, true) do
-    defp maybe_add_signature(result, %T{data: %TB{ref: {device, _}}}) do
+    defp maybe_add_signature(result, %T{data: %TB{ref: {device, _}}}, is_sparse) do
+      sparse = if is_sparse, do: " sparse", else: ""
+
       Inspect.Algebra.concat([
         "Torchx.Backend(#{device})",
+        sparse,
         Inspect.Algebra.line(),
         result
       ])
     end
   else
-    defp maybe_add_signature(result, _tensor) do
+    defp maybe_add_signature(result, _tensor, _is_sparse) do
       result
     end
   end

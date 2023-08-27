@@ -373,14 +373,15 @@ NIF(nbytes)
 
   int64_t size = 0;
 
-  if (t->is_sparse()) {
+  if (t->is_sparse())
+  {
     size = t->_values().numel() * t->_values().element_size();
     size += t->_indices().numel() * t->_indices().element_size();
   }
-  else {
+  else
+  {
     size = t->nbytes();
   }
-
 
   return nx::nif::ok(env, enif_make_int64(env, size));
 }
@@ -812,6 +813,32 @@ NIF(to_sparse)
   TENSOR_PARAM(1, indices);
   SHAPE_PARAM(2, shape);
   TENSOR(at::native::sparse_coo_tensor(*indices, *tensor, shape));
+}
+
+NIF(is_sparse)
+{
+  TENSOR_PARAM(0, tensor);
+  bool is_sparse = tensor->is_sparse();
+
+  return nx::nif::ok(env, nx::nif::make(env, is_sparse));
+}
+
+NIF(coalesce)
+{
+  TENSOR_PARAM(0, tensor);
+  TENSOR(tensor->clone().coalesce());
+}
+
+NIF(indices)
+{
+  TENSOR_PARAM(0, tensor);
+  TENSOR(tensor->indices());
+}
+
+NIF(values)
+{
+  TENSOR_PARAM(0, tensor);
+  TENSOR(tensor->values());
 }
 
 NIF(to_dense)
@@ -1275,6 +1302,10 @@ static ErlNifFunc nif_functions[] = {
     DF(full, 4),
 
     DF(to_sparse, 3),
+    DF(coalesce, 1),
+    DF(is_sparse, 1),
+    DF(indices, 1),
+    DF(values, 1),
     DF(to_dense, 1),
     DF(item, 1),
     DF(from_blob, 4),
