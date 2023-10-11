@@ -29,7 +29,7 @@ defmodule EXLA.MLIR.Value do
     end
   end
 
-  @unary_ops [:abs, :exp, :expm1, :floor, :ceil, :round] ++
+  @unary_ops [:abs, :exp, :return, :expm1, :floor, :ceil, :round] ++
                [:log, :log1p, :sigmoid, :sign, :cos] ++
                [:sin, :acos, :asin, :atan, :cosh, :sinh] ++
                [:tanh, :acosh, :asinh, :atanh, :sqrt, :cbrt] ++
@@ -167,6 +167,13 @@ defmodule EXLA.MLIR.Value do
   end
 
   def constant_r0(%Function{} = func, value, type) do
+
+    value = if Nx.Type.float?(type) and not is_float(value) do
+      value * 1.0
+    else
+      value
+    end
+
     ref =
       EXLA.NIF.mlir_constant_r0(func.ref, value, EXLA.Shape.dtype_to_charlist(type)) |> unwrap!()
 
@@ -392,7 +399,65 @@ defmodule EXLA.MLIR.Value do
       )
       |> unwrap!()
 
-    %Value{tensor | ref: ref}
+    %{tensor | ref: ref}
+  end
+
+  def top_k(%Value{function: func} = tensor, k) do
+    # mlir::mhlo::TopKOp cannot be translated to XLA HLO, so we'll use
+    # variadic sort to implement it instead.
+
+    shape_ref = EXLA.NIF.mlir_get_shape(tensor.ref) |> unwrap!()
+    shape = EXLA.Shape.get_shape_info(shape_ref)
+    dims = shape.dims
+    rank = tuple_size(dims)
+    iota = iota(func, shape, rank - 1) |> convert({:s, 64})
+
+    [values, indices] = sort([tensor, iota], rank - 1, :desc)
+
+    strides = List.duplicate(1, rank)
+    starts = List.duplicate(0, rank)
+
+    limits =
+      Enum.map(0..(rank - 1), fn axis ->
+        if axis == rank - 1 do
+          k
+        else
+          elem(dims, axis)
+        end
+      end)
+
+    values = slice(values, starts, limits, strides)
+    indices = slice(indices, starts, limits, strides)
+
+    tuple([values, indices])
+  end
+
+  def triangular_solve(a, b, left_side, lower, transform) do
+    ref =
+      EXLA.NIF.mlir_triangular_solve(
+        a.function.ref,
+        a.ref,
+        b.ref,
+        if(left_side, do: 1, else: 0),
+        if(lower, do: 1, else: 0),
+        if(transform == :transpose, do: 1, else: 0)
+      )
+      |> unwrap!()
+
+    %{a | ref: ref}
+  end
+
+  def dynamic_update_slice(operand, updates, starts) do
+    ref =
+      EXLA.NIF.mlir_dynamic_update_slice(
+        operand.function.ref,
+        operand.ref,
+        updates.ref,
+        Enum.map(starts, & &1.ref)
+      )
+      |> unwrap!()
+
+    %{operand | ref: ref}
   end
 
   def reduce(
@@ -405,7 +470,7 @@ defmodule EXLA.MLIR.Value do
     input_refs = Enum.map(inputs, & &1.ref)
 
     refs =
-      EXLA.NIF.mlir_reduce(func.ref, reducer, init_value_refs, input_refs, dimensions)
+      EXLA.NIF.mlir_reduce(func.ref, reducer, init_value_refs, input_refs, {0})
       |> unwrap!()
 
     Enum.map(refs, &%Value{ref: &1, function: func})

@@ -58,6 +58,31 @@ mlir::TensorType GetMLIRType(mlir::OpBuilder *builder, std::vector<tsl::int64> d
   return mlir::RankedTensorType::get(dims, type);
 }
 
+mlir::Type GetMLIRFunctionType(mlir::OpBuilder *builder, xla::Shape *shape) {
+  if (shape->IsTuple()) {
+    // iterate through tuple types
+    std::vector<mlir::Type> element_types;
+    for (xla::Shape element : shape->tuple_shapes()) {
+      mlir::Type element_type;
+      if (element.IsTuple()) {
+        element_type = GetMLIRFunctionType(builder, &element);
+      } else {
+        auto span = element.dimensions();
+        std::vector<tsl::int64> dims(span.begin(), span.end());
+        element_type = GetMLIRType(builder, dims, element.element_type());
+      }
+      element_types.push_back(element_type);
+    }
+
+    mlir::TupleType tuple = mlir::TupleType::get(builder->getContext(), mlir::TypeRange(element_types));
+    return tuple;
+  }
+
+  auto span = shape->dimensions();
+  std::vector<tsl::int64> dims(span.begin(), span.end());
+  return GetMLIRType(builder, dims, shape->element_type());
+}
+
 mlir::mhlo::DotDimensionNumbersAttr ConvertDotDimensionNumbersToAttr(mlir::OpBuilder *builder, const xla::DotDimensionNumbers &dotDimNumbers) {
   std::vector<int64_t> lhsContractingVec(dotDimNumbers.lhs_contracting_dimensions().begin(),
                                          dotDimNumbers.lhs_contracting_dimensions().end());
@@ -191,6 +216,7 @@ mlir::Value MLIRFunction::BitcastConvertOp(mlir::Value operand, xla::Shape shape
 mlir::Value MLIRFunction::AddOp(mlir::Value lhs, mlir::Value rhs) {
   module_->builder()->setInsertionPointToEnd(&func_->getBody().back());
   auto op = module_->builder()->create<mlir::mhlo::AddOp>(module_->builder()->getUnknownLoc(), lhs, rhs);
+
   return op;
 }
 
@@ -325,6 +351,12 @@ mlir::Value MLIRFunction::AbsOp(mlir::Value operand) {
 mlir::Value MLIRFunction::ExpOp(mlir::Value operand) {
   module_->builder()->setInsertionPointToEnd(&func_->getBody().back());
   return module_->builder()->create<mlir::mhlo::ExpOp>(module_->builder()->getUnknownLoc(), operand);
+}
+
+mlir::Value MLIRFunction::ReturnOp(mlir::Value operand) {
+  module_->builder()->setInsertionPointToEnd(&func_->getBody().back());
+  mlir::mhlo::ReturnOp op = module_->builder()->create<mlir::mhlo::ReturnOp>(module_->builder()->getUnknownLoc(), operand);
+  return op.getResults()[0];
 }
 
 mlir::Value MLIRFunction::Expm1Op(mlir::Value operand) {
@@ -756,11 +788,10 @@ std::vector<mlir::Value> MLIRFunction::ReduceOp(
   mlir::ValueRange inputs_range(inputs);
   mlir::DenseIntElementsAttr dimensions_attr = Int64ToDenseIntElementsAttr(builder, dimensions);
 
-  mlir::mhlo::ReduceOp reduce_op = builder->create<mlir::mhlo::ReduceOp>(builder->getUnknownLoc(), init_values_range, inputs_range, dimensions_attr);
+  mlir::mhlo::ReduceOp reduce_op = builder->create<mlir::mhlo::ReduceOp>(builder->getUnknownLoc(), inputs_range, init_values_range, dimensions_attr);
   mlir::Region &reduceBody = reduce_op.getRegion();
   mlir::Region &funcBody = reducer->function()->getBody();
   reduceBody.getBlocks().splice(reduceBody.end(), funcBody.getBlocks());
-
   mlir::Operation::result_range results = reduce_op.getResults();
   return std::vector<mlir::Value>(results.begin(), results.end());
 }
@@ -915,7 +946,7 @@ ERL_NIF_TERM MLIRFunction::ConstantOp(mlir::Type type, ErlNifEnv *env, ERL_NIF_T
 
 void MLIRFunction::Build(mlir::Value root) {
   module_->builder()->setInsertionPointToEnd(&func_->getBody().back());
-  auto op = module_->builder()->create<mlir::func::ReturnOp>(module_->builder()->getUnknownLoc(), root);
+  auto op = module_->builder()->create<mlir::mhlo::ReturnOp>(module_->builder()->getUnknownLoc(), root);
   return;
 }
 
@@ -981,16 +1012,16 @@ xla::PrimitiveType MLIRTypeToPrimitiveType(mlir::Type type) {
 
 MLIRFunction *MLIRModule::CreateFunction(
     std::string name,
-    std::vector<std::pair<std::vector<tsl::int64>, xla::PrimitiveType>> arg_types,
-    std::pair<std::vector<tsl::int64>, xla::PrimitiveType> ret_type) {
+    std::vector<xla::Shape *> arg_shapes,
+    xla::Shape *ret_shape) {
   std::vector<mlir::Type> types;
-  types.reserve(arg_types.size());
-  for (auto arg_type : arg_types) {
-    mlir::Type type = GetMLIRType(builder_.get(), arg_type.first, arg_type.second);
+  types.reserve(arg_shapes.size());
+  for (auto arg_shape : arg_shapes) {
+    mlir::Type type = GetMLIRFunctionType(builder_.get(), arg_shape);
     types.push_back(type);
   }
 
-  mlir::Type return_type = GetMLIRType(builder_.get(), ret_type.first, ret_type.second);
+  mlir::Type return_type = GetMLIRFunctionType(builder_.get(), ret_shape);
 
   auto funcType = builder_->getFunctionType(types, return_type);
   auto loc = builder_->getUnknownLoc();
@@ -1058,6 +1089,26 @@ mlir::Value MLIRFunction::CreateTokenOp() {
   auto builder = module_->builder();
   builder->setInsertionPointToEnd(&func_->getBody().back());
   return builder->create<mlir::mhlo::CreateTokenOp>(builder->getUnknownLoc());
+}
+
+mlir::Value MLIRFunction::TriangularSolveOp(mlir::Value a, mlir::Value b, bool left_side, bool lower, bool transpose_a) {
+  auto builder = module_->builder();
+  builder->setInsertionPointToEnd(&func_->getBody().back());
+  mlir::mhlo::Transpose transpose = mlir::mhlo::Transpose::NO_TRANSPOSE;
+
+  if (a.getType().isa<mlir::ComplexType>() and transpose_a) {
+    transpose = mlir::mhlo::Transpose::ADJOINT;
+  } else if (transpose_a) {
+    transpose = mlir::mhlo::Transpose::TRANSPOSE;
+  }
+
+  return builder->create<mlir::mhlo::TriangularSolveOp>(builder->getUnknownLoc(), a, b, left_side, lower, false, transpose);
+}
+
+mlir::Value MLIRFunction::DynamicUpdateSliceOp(mlir::Value operand, mlir::Value update, std::vector<mlir::Value> start_indices) {
+  auto builder = module_->builder();
+  builder->setInsertionPointToEnd(&func_->getBody().back());
+  return builder->create<mlir::mhlo::DynamicUpdateSliceOp>(builder->getUnknownLoc(), operand, update, mlir::ValueRange(start_indices));
 }
 
 }  // namespace exla

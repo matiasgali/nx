@@ -655,6 +655,7 @@ static ErlNifFunc exla_funcs[] = {
     {"mlir_bitcast_convert", 4, mlir_bitcast_convert},
     {"mlir_abs", 2, mlir_abs},
     {"mlir_exp", 2, mlir_exp},
+    {"mlir_return", 2, mlir_return},
     {"mlir_expm1", 2, mlir_expm1},
     {"mlir_floor", 2, mlir_floor},
     {"mlir_ceil", 2, mlir_ceil},
@@ -717,6 +718,8 @@ static ErlNifFunc exla_funcs[] = {
     {"mlir_convolution", 12, mlir_convolution},
     {"mlir_create_token", 1, mlir_create_token},
     {"mlir_reduce", 5, mlir_reduce},
+    {"mlir_triangular_solve", 6, mlir_triangular_solve},
+    {"mlir_dynamic_update_slice", 4, mlir_dynamic_update_slice},
     // XlaBuilder
     {"new_builder", 1, new_builder},
     {"create_sub_builder", 2, create_sub_builder},

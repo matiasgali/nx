@@ -95,6 +95,7 @@ defmodule EXLA.MLIR.Module do
       )
       |> unwrap!()
 
+
     %Executable{
       client: client,
       ref: ref,

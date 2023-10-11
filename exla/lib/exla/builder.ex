@@ -17,16 +17,27 @@ defmodule EXLA.Builder do
   end
 
   def new(_name, inputs, outputs, :mlir) do
-    # TO-DO (mlir): check if using name makes sense
+    # TO-DO (mlir): check if using the function name makes sense
     arg_shapes = Enum.map(inputs, fn {_, %Shape{} = s} -> s end)
-    return_shape = exla_shape(outputs)
+
+    return_shape =
+      [outputs] |> Nx.Defn.Composite.flatten_list() |> List.to_tuple() |> exla_shape()
+
+      dbg({return_shape})
 
     module = M.new()
     M.create_function(module, "main", arg_shapes, return_shape)
   end
 
-  defp exla_shape(%{shape: shape, type: type}) do
-    EXLA.Shape.make_shape(type, shape)
+  defp exla_shape(tensors) when is_tuple(tensors) do
+    tensors
+    |> Tuple.to_list()
+    |> Enum.map(&exla_shape/1)
+    |> EXLA.Shape.make_tuple_shape()
+  end
+
+  defp exla_shape(%Nx.Tensor{} = t) do
+    EXLA.Shape.make_shape(t.type, t.shape)
   end
 
   defp new(name) when is_binary(name) do
@@ -45,18 +56,7 @@ defmodule EXLA.Builder do
     %Computation{ref: ref, output_shape: shape}
   end
 
-  def build(%EXLA.MLIR.Value{function: %{return_shape: out_shape}} = val) do
-    val =
-      case out_shape do
-        %{dtype: {:tuple, _}} ->
-          EXLA.MLIR.Value.get_tuple_element(val, 0)
-
-        _ ->
-          val
-      end
-
-    %EXLA.MLIR.Value{function: function, ref: root_ref} = val
-
+  def build(%EXLA.MLIR.Value{function: function, ref: root_ref}) do
     %EXLA.MLIR.Function{ref: function_ref} = function
     :ok = EXLA.NIF.mlir_build(function_ref, root_ref)
     function
