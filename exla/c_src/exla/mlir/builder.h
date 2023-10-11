@@ -101,12 +101,15 @@ class MLIRFunction {
   mlir::Value FFTOp(mlir::Value tensor, bool forward_fft, std::vector<int64_t> fft_lenght);
   mlir::Value ConvOp(mlir::Value tensor, mlir::Value kernel, std::vector<int64_t> window_strides, std::vector<int64_t> padding, std::vector<int64_t> tensor_dilation, std::vector<int64_t> kernel_dilation, xla::ConvolutionDimensionNumbers dimension_numbers, uint64_t feature_group_count, uint64_t batch_group_count, uint64_t precision_config, std::vector<int64_t> output_dims);
   mlir::Value CreateTokenOp();
+  std::vector<mlir::Value> ReduceOp(MLIRFunction * function, std::vector<mlir::Value> init_values, std::vector<mlir::Value> inputs, std::vector<int64_t> dimensions);
   ERL_NIF_TERM ConstantOp(mlir::Type type, ErlNifEnv *env, ERL_NIF_TERM value_ptr, std::vector<int64_t> dims = {});
   int get_mlir_type(ErlNifEnv *env, ERL_NIF_TERM term, mlir::Type *type);
 
   void Build(mlir::Value root);
 
   llvm::MutableArrayRef<mlir::BlockArgument> get_arguments() { return func_->getBody().front().getArguments(); }
+
+  mlir::func::FuncOp * function() { return func_.get(); }
 
  private:
   std::shared_ptr<MLIRModule> module_;
