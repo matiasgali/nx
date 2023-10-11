@@ -470,7 +470,7 @@ defmodule EXLA.MLIR.Value do
     input_refs = Enum.map(inputs, & &1.ref)
 
     refs =
-      EXLA.NIF.mlir_reduce(func.ref, reducer, init_value_refs, input_refs, {0})
+      EXLA.NIF.mlir_reduce(func.ref, reducer, init_value_refs, input_refs, dimensions)
       |> unwrap!()
 
     Enum.map(refs, &%Value{ref: &1, function: func})

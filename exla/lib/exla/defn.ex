@@ -1834,8 +1834,6 @@ defmodule EXLA.Defn do
         {"p#{i}", computation_arg_shape(arg)}
       end)
 
-    dbg({op, args, out})
-
     function = EXLA.Builder.new(Atom.to_string(op), arg_shapes, struct(Nx.Tensor, out), :mlir)
 
     args = EXLA.MLIR.Function.get_arguments(function)

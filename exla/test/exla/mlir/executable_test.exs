@@ -829,7 +829,7 @@ defmodule EXLA.MLIR.ExecutableTest do
     end
 
     test "sum custom axes" do
-      tensor = Nx.tensor([[[1, 2, 3], [4, 5, 6]]])
+      tensor = Nx.tensor([[[1, 2, 3.0], [4, 5, 6]]])
 
       function = &Nx.sum(&1, axes: [0, 2])
 
@@ -840,7 +840,7 @@ defmodule EXLA.MLIR.ExecutableTest do
     end
 
     test "sum keep axes" do
-      tensor = Nx.tensor([[[1, 2, 3], [4, 5, 6]]])
+      tensor = Nx.tensor([[[1, 2, 3.0], [4, 5, 6]]])
 
       function = &Nx.sum(&1, axes: [0, 2], keep_axes: true)
 
