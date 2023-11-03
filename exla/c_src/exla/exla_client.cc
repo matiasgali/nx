@@ -6,6 +6,7 @@
 #include "xla/pjrt/gpu/se_gpu_pjrt_client.h"
 #include "xla/pjrt/pjrt_c_api_client.h"
 #include "xla/pjrt/pjrt_compiler.h"
+#include "xla/pjrt/pjrt_api.h"
 
 namespace exla {
 
@@ -487,10 +488,16 @@ xla::StatusOr<ExlaClient*> GetGpuClient(double memory_fraction,
 }
 
 xla::StatusOr<ExlaClient*> GetTpuClient() {
-  // TODO support TPU via PjRt plugin API
+  EXLA_EFFECT_OR_RETURN(pjrt::LoadPjrtPlugin("tpu", "libtpu.so"));
+
+  xla::Status status = pjrt::InitializePjrtPlugin("tpu");
+
+  if (!status.ok()) {
+    return status;
+  }
 
   EXLA_ASSIGN_OR_RETURN(std::unique_ptr<xla::PjRtClient> client,
-    xla::GetTfrtCpuClient(false));
+    xla::GetCApiClient("TPU"));
 
   return new ExlaClient(std::move(client));
 }
